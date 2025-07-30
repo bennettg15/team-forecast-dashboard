@@ -16,9 +16,39 @@ st.set_page_config(
 st.title("📊 Team Forecast Analysis Dashboard")
 st.markdown("Upload your team forecast data to visualize performance across weeks, teams, and cost categories.")
 
+# Function to generate sample CSV format
+def generate_sample_csv():
+    """Generate a sample CSV file in the expected format"""
+    sample_data = {
+        'Team Name': ['Team Alpha', 'Team Alpha', 'Team Alpha', 'Team Beta', 'Team Beta', 'Team Beta'],
+        'Category': ['HC Related', 'Contracted Srvcs', 'Software Spend', 'HC Related', 'Contracted Srvcs', 'Software Spend'],
+        'Budget': [25000000, 4000000, 150000, 22000000, 3500000, 140000],
+        'Week 1 Q4 Forecast': [24419000, 3884405, 141137, 21500000, 3200000, 135000],
+        'Week 2 Q4 Forecast': [22421082, 3566590, 129389, 20800000, 3100000, 128000],
+        'Week 3 Q4 Forecast': [23309045, 3707841, 134721, 21200000, 3250000, 132000],
+        'Week 4 Q4 Forecast': [24640991, 3919717, 142420, 22100000, 3400000, 138000]
+    }
+    return pd.DataFrame(sample_data)
+
 # Sidebar for file upload and filters
 with st.sidebar:
     st.header("Data Upload")
+    
+    # Sample file download
+    st.subheader("📥 Download Sample Format")
+    sample_df = generate_sample_csv()
+    sample_csv = sample_df.to_csv(index=False)
+    
+    st.download_button(
+        label="📋 Download Sample CSV Format",
+        data=sample_csv,
+        file_name="sample_forecast_format.csv",
+        mime="text/csv",
+        help="Download a sample CSV file to see the expected format"
+    )
+    
+    st.markdown("---")
+    
     uploaded_file = st.file_uploader(
         "Upload your forecast data (CSV)",
         type=['csv'],
@@ -341,16 +371,24 @@ if df is not None:
     st.markdown("---")
     st.markdown("""
     ### How to use this dashboard:
-    1. **Upload Data**: Use the sidebar to upload your CSV file with forecast data
-    2. **Filter**: Select specific teams and categories to focus your analysis
-    3. **Explore Tabs**: 
+    1. **Download Sample**: Click "📋 Download Sample CSV Format" in the sidebar to get the correct file structure
+    2. **Prepare Your Data**: Format your data to match the sample structure
+    3. **Upload Data**: Use the sidebar to upload your CSV file with forecast data
+    4. **Filter**: Select specific teams and categories to focus your analysis
+    5. **Explore Tabs**: 
        - **Weekly Trends**: See how forecasts change over time
        - **Team Comparison**: Compare performance across teams
        - **Category Analysis**: Understand spending by category
        - **Budget vs Forecast**: Analyze variance from budget
        - **Data Table**: View and download the raw data
     
-    **Expected CSV Format**: Include columns for 'Team Name', 'Category', 'Budget', and weekly forecast columns like 'Week 1 Q4 Forecast', 'Week 2 Q4 Forecast', etc.
+    **Required CSV Columns**: 
+    - `Team Name` - Name of the team
+    - `Category` - Cost categories (HC Related, Contracted Srvcs, etc.)
+    - `Budget` - Budget amount for each category
+    - `Week X Q4 Forecast` - Weekly forecast columns (Week 1, Week 2, etc.)
+    
+    💡 **Tip**: Download the sample format file first to see exactly how your data should be structured!
     """)
 
 else:
