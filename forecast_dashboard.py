@@ -30,6 +30,31 @@ def generate_sample_csv():
     }
     return pd.DataFrame(sample_data)
 
+# Sidebar for file upload and filters
+with st.sidebar:
+    st.header("Data Upload")
+    
+    # Sample file download
+    st.subheader("📥 Download Sample Format")
+    sample_df = generate_sample_csv()
+    sample_csv = sample_df.to_csv(index=False)
+    
+    st.download_button(
+        label="📋 Download Sample CSV Format",
+        data=sample_csv,
+        file_name="sample_forecast_format.csv",
+        mime="text/csv",
+        help="Download a sample CSV file to see the expected format"
+    )
+    
+    st.markdown("---")
+    
+    uploaded_file = st.file_uploader(
+        "Upload your forecast data (CSV)",
+        type=['csv'],
+        help="Upload a CSV file with team forecast data"
+    )
+
 # Sample data generation function for demo purposes
 def generate_sample_data():
     """Generate sample data similar to the provided screenshot"""
@@ -56,8 +81,7 @@ def generate_sample_data():
     return pd.DataFrame(data)
 
 # Function to process uploaded data or use sample data
-def load_data(uploaded_file):
-    """Load and process data from uploaded file or generate sample data"""
+def load_data():
     if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file)
@@ -75,12 +99,18 @@ def load_data(uploaded_file):
             
             # Convert to numeric, handling any non-numeric values
             for col in numeric_columns:
-                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('$', ''), errors='coerce')
+                if col in df.columns:
+                    # Handle various formats: remove $, commas, and convert to float
+                    df[col] = pd.to_numeric(
+                        df[col].astype(str).str.replace(',', '').str.replace('$', '').str.strip(), 
+                        errors='coerce'
+                    )
             
             # Check for any conversion issues
-            if df[numeric_columns].isnull().any().any():
+            if len(numeric_columns) > 0 and df[numeric_columns].isnull().any().any():
                 st.warning("Some numeric values couldn't be converted. Please check your data format.")
-                st.write("Columns with issues:", df[numeric_columns].columns[df[numeric_columns].isnull().any()].tolist())
+                problematic_cols = df[numeric_columns].columns[df[numeric_columns].isnull().any()].tolist()
+                st.write("Columns with issues:", problematic_cols)
             
             return df
         except Exception as e:
@@ -90,40 +120,17 @@ def load_data(uploaded_file):
         st.info("No file uploaded. Using sample data for demonstration.")
         return generate_sample_data()
 
-# Sidebar for file upload and filters
-with st.sidebar:
-    st.header("Data Upload")
-    
-    # Sample file download
-    st.subheader("📥 Download Sample Format")
-    sample_df = generate_sample_csv()
-    sample_csv = sample_df.to_csv(index=False)
-    
-    st.download_button(
-        label="📋 Download Sample CSV Format",
-        data=sample_csv,
-        file_name="sample_forecast_format.csv",
-        mime="text/csv",
-        help="Download a sample CSV file to see the expected format"
-    )
-    
-    st.markdown("---")
-    
-    uploaded_file = st.file_uploader(
-        "Upload your forecast data (CSV)",
-        type=['csv'],
-        help="Upload a CSV file with team forecast data"
-    )
-
 # Load data
-df = load_data(uploaded_file)
+df = load_data()
 
-# Show data preview if file is uploaded
-if uploaded_file is not None and df is not None:
-    with st.sidebar:
-        # Show data preview
-        with st.expander("📋 Data Preview"):
-            st.write("First 5 rows of your uploaded data:")
+# Show data preview if file uploaded
+if uploaded_file is not None:
+    st.success("File uploaded successfully!")
+    
+    # Show data preview
+    with st.expander("📋 Data Preview"):
+        st.write("First 5 rows of your uploaded data:")
+        if df is not None:
             st.dataframe(df.head())
             st.write(f"Shape: {df.shape[0]} rows, {df.shape[1]} columns")
             st.write("Column types:")
@@ -159,10 +166,13 @@ if df is not None:
         )
     
     # Filter data based on selections
-    filtered_df = df[
-        (df['Team Name'].isin(selected_teams)) & 
-        (df['Category'].isin(selected_categories))
-    ]
+    if len(selected_teams) > 0 and len(selected_categories) > 0:
+        filtered_df = df[
+            (df['Team Name'].isin(selected_teams)) & 
+            (df['Category'].isin(selected_categories))
+        ].copy()
+    else:
+        filtered_df = df.copy()
     
     if filtered_df.empty:
         st.warning("No data matches the selected filters. Please adjust your selection.")
@@ -173,9 +183,9 @@ if df is not None:
         filtered_df['Total Forecast'] = filtered_df[week_cols].sum(axis=1)
         if 'Budget' in filtered_df.columns:
             filtered_df['Over/(Under)'] = filtered_df['Total Forecast'] - filtered_df['Budget']
-            # Handle division by zero
+            # Avoid division by zero
             filtered_df['Budget Variance %'] = filtered_df.apply(
-                lambda row: (row['Over/(Under)'] / row['Budget'] * 100) if row['Budget'] != 0 else 0, 
+                lambda row: (row['Over/(Under)'] / row['Budget']) * 100 if row['Budget'] != 0 else 0, 
                 axis=1
             )
     except Exception as e:
@@ -188,34 +198,33 @@ if df is not None:
     
     with col1:
         try:
-            total_forecast = filtered_df['Total Forecast'].sum()
+            total_forecast = float(filtered_df['Total Forecast'].sum())
             st.metric("Total Forecast", f"${total_forecast:,.0f}")
-        except Exception as e:
+        except:
             st.metric("Total Forecast", "Error in calculation")
     
     with col2:
         if 'Budget' in filtered_df.columns:
             try:
-                total_budget = filtered_df['Budget'].sum()
+                total_budget = float(filtered_df['Budget'].sum())
                 st.metric("Total Budget", f"${total_budget:,.0f}")
-            except Exception as e:
+            except:
                 st.metric("Total Budget", "Error in calculation")
     
     with col3:
         if 'Over/(Under)' in filtered_df.columns:
             try:
-                total_variance = filtered_df['Over/(Under)'].sum()
+                total_variance = float(filtered_df['Over/(Under)'].sum())
                 st.metric("Budget Variance", f"${total_variance:,.0f}")
-            except Exception as e:
+            except:
                 st.metric("Budget Variance", "Error in calculation")
     
     with col4:
         if 'Budget Variance %' in filtered_df.columns:
             try:
-                total_budget = filtered_df['Budget'].sum()
-                avg_variance_pct = (total_variance / total_budget * 100) if total_budget != 0 else 0
+                avg_variance_pct = float((total_variance / total_budget * 100)) if total_budget != 0 else 0
                 st.metric("Variance %", f"{avg_variance_pct:.1f}%")
-            except Exception as e:
+            except:
                 st.metric("Variance %", "Error in calculation")
     
     # Tabs for different visualizations
@@ -239,56 +248,61 @@ if df is not None:
                     'Team': row['Team Name'],
                     'Category': row['Category'],
                     'Week': f"Week {week_num}",
-                    'Forecast': row[week_col]
+                    'Forecast': float(row[week_col]) if pd.notnull(row[week_col]) else 0
                 })
         
         weekly_df = pd.DataFrame(weekly_data)
         
-        # Weekly trends by team
-        fig_weekly_team = px.line(
-            weekly_df.groupby(['Team', 'Week'])['Forecast'].sum().reset_index(),
-            x='Week', y='Forecast', color='Team',
-            title="Weekly Forecast by Team",
-            markers=True
-        )
-        fig_weekly_team.update_layout(height=400)
-        st.plotly_chart(fig_weekly_team, use_container_width=True)
-        
-        # Weekly trends by category
-        fig_weekly_cat = px.line(
-            weekly_df.groupby(['Category', 'Week'])['Forecast'].sum().reset_index(),
-            x='Week', y='Forecast', color='Category',
-            title="Weekly Forecast by Category",
-            markers=True
-        )
-        fig_weekly_cat.update_layout(height=400)
-        st.plotly_chart(fig_weekly_cat, use_container_width=True)
+        if not weekly_df.empty:
+            # Weekly trends by team
+            team_weekly = weekly_df.groupby(['Team', 'Week'])['Forecast'].sum().reset_index()
+            fig_weekly_team = px.line(
+                team_weekly,
+                x='Week', y='Forecast', color='Team',
+                title="Weekly Forecast by Team",
+                markers=True
+            )
+            fig_weekly_team.update_layout(height=400)
+            st.plotly_chart(fig_weekly_team, use_container_width=True)
+            
+            # Weekly trends by category
+            cat_weekly = weekly_df.groupby(['Category', 'Week'])['Forecast'].sum().reset_index()
+            fig_weekly_cat = px.line(
+                cat_weekly,
+                x='Week', y='Forecast', color='Category',
+                title="Weekly Forecast by Category",
+                markers=True
+            )
+            fig_weekly_cat.update_layout(height=400)
+            st.plotly_chart(fig_weekly_cat, use_container_width=True)
     
     with tab2:
         st.subheader("Team Performance Comparison")
         
         # Team total forecast comparison
         team_totals = filtered_df.groupby('Team Name')['Total Forecast'].sum().reset_index()
-        fig_team_bar = px.bar(
-            team_totals, x='Team Name', y='Total Forecast',
-            title="Total Forecast by Team",
-            color='Total Forecast',
-            color_continuous_scale='viridis'
-        )
-        fig_team_bar.update_layout(height=400)
-        st.plotly_chart(fig_team_bar, use_container_width=True)
+        if not team_totals.empty:
+            fig_team_bar = px.bar(
+                team_totals, x='Team Name', y='Total Forecast',
+                title="Total Forecast by Team",
+                color='Total Forecast',
+                color_continuous_scale='viridis'
+            )
+            fig_team_bar.update_layout(height=400)
+            st.plotly_chart(fig_team_bar, use_container_width=True)
         
         # Team budget variance
         if 'Over/(Under)' in filtered_df.columns:
             team_variance = filtered_df.groupby('Team Name')['Over/(Under)'].sum().reset_index()
-            fig_variance = px.bar(
-                team_variance, x='Team Name', y='Over/(Under)',
-                title="Budget Variance by Team",
-                color='Over/(Under)',
-                color_continuous_scale='RdYlGn_r'
-            )
-            fig_variance.update_layout(height=400)
-            st.plotly_chart(fig_variance, use_container_width=True)
+            if not team_variance.empty:
+                fig_variance = px.bar(
+                    team_variance, x='Team Name', y='Over/(Under)',
+                    title="Budget Variance by Team",
+                    color='Over/(Under)',
+                    color_continuous_scale='RdYlGn_r'
+                )
+                fig_variance.update_layout(height=400)
+                st.plotly_chart(fig_variance, use_container_width=True)
     
     with tab3:
         st.subheader("Cost Category Analysis")
@@ -296,43 +310,49 @@ if df is not None:
         # Category breakdown
         category_totals = filtered_df.groupby('Category')['Total Forecast'].sum().reset_index()
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig_pie = px.pie(
-                category_totals, values='Total Forecast', names='Category',
-                title="Forecast Distribution by Category"
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-        
-        with col2:
-            fig_cat_bar = px.bar(
-                category_totals, x='Category', y='Total Forecast',
-                title="Total Forecast by Category",
-                color='Total Forecast',
-                color_continuous_scale='plasma'
-            )
-            fig_cat_bar.update_xaxis(tickangle=45)
-            st.plotly_chart(fig_cat_bar, use_container_width=True)
-        
-        # Heatmap of team vs category
-        pivot_data = filtered_df.pivot_table(
-            values='Total Forecast', 
-            index='Team Name', 
-            columns='Category', 
-            aggfunc='sum'
-        ).fillna(0)
-        
-        fig_heatmap = px.imshow(
-            pivot_data.values,
-            x=pivot_data.columns,
-            y=pivot_data.index,
-            aspect="auto",
-            title="Team vs Category Heatmap",
-            color_continuous_scale='viridis'
-        )
-        fig_heatmap.update_layout(height=400)
-        st.plotly_chart(fig_heatmap, use_container_width=True)
+        if not category_totals.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig_pie = px.pie(
+                    category_totals, values='Total Forecast', names='Category',
+                    title="Forecast Distribution by Category"
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            with col2:
+                fig_cat_bar = px.bar(
+                    category_totals, x='Category', y='Total Forecast',
+                    title="Total Forecast by Category",
+                    color='Total Forecast',
+                    color_continuous_scale='plasma'
+                )
+                # Fix: Use update_layout instead of update_xaxis
+                fig_cat_bar.update_layout(xaxis={'tickangle': 45}, height=400)
+                st.plotly_chart(fig_cat_bar, use_container_width=True)
+            
+            # Heatmap of team vs category
+            try:
+                pivot_data = filtered_df.pivot_table(
+                    values='Total Forecast', 
+                    index='Team Name', 
+                    columns='Category', 
+                    aggfunc='sum'
+                ).fillna(0)
+                
+                if not pivot_data.empty:
+                    fig_heatmap = px.imshow(
+                        pivot_data.values,
+                        x=pivot_data.columns,
+                        y=pivot_data.index,
+                        aspect="auto",
+                        title="Team vs Category Heatmap",
+                        color_continuous_scale='viridis'
+                    )
+                    fig_heatmap.update_layout(height=400)
+                    st.plotly_chart(fig_heatmap, use_container_width=True)
+            except Exception as e:
+                st.write(f"Could not create heatmap: {e}")
     
     with tab4:
         st.subheader("Budget vs Forecast Analysis")
@@ -344,45 +364,49 @@ if df is not None:
                 'Total Forecast': 'sum'
             }).reset_index()
             
-            fig_budget = go.Figure()
-            fig_budget.add_trace(go.Bar(
-                name='Budget',
-                x=budget_comparison['Team Name'],
-                y=budget_comparison['Budget'],
-                marker_color='lightblue'
-            ))
-            fig_budget.add_trace(go.Bar(
-                name='Forecast',
-                x=budget_comparison['Team Name'],
-                y=budget_comparison['Total Forecast'],
-                marker_color='darkblue'
-            ))
-            fig_budget.update_layout(
-                title='Budget vs Forecast by Team',
-                barmode='group',
-                height=400
-            )
-            st.plotly_chart(fig_budget, use_container_width=True)
+            if not budget_comparison.empty:
+                fig_budget = go.Figure()
+                fig_budget.add_trace(go.Bar(
+                    name='Budget',
+                    x=budget_comparison['Team Name'],
+                    y=budget_comparison['Budget'],
+                    marker_color='lightblue'
+                ))
+                fig_budget.add_trace(go.Bar(
+                    name='Forecast',
+                    x=budget_comparison['Team Name'],
+                    y=budget_comparison['Total Forecast'],
+                    marker_color='darkblue'
+                ))
+                fig_budget.update_layout(
+                    title='Budget vs Forecast by Team',
+                    barmode='group',
+                    height=400
+                )
+                st.plotly_chart(fig_budget, use_container_width=True)
             
             # Variance analysis
             variance_data = filtered_df.groupby('Category').agg({
                 'Over/(Under)': 'sum',
                 'Budget': 'sum'
             }).reset_index()
-            variance_data['Variance %'] = variance_data.apply(
-                lambda row: (row['Over/(Under)'] / row['Budget'] * 100) if row['Budget'] != 0 else 0, 
-                axis=1
-            )
             
-            fig_variance_pct = px.bar(
-                variance_data, x='Category', y='Variance %',
-                title="Budget Variance % by Category",
-                color='Variance %',
-                color_continuous_scale='RdYlGn_r'
-            )
-            fig_variance_pct.update_xaxis(tickangle=45)
-            fig_variance_pct.update_layout(height=400)
-            st.plotly_chart(fig_variance_pct, use_container_width=True)
+            if not variance_data.empty:
+                # Calculate variance percentage, handling division by zero
+                variance_data['Variance %'] = variance_data.apply(
+                    lambda row: (row['Over/(Under)'] / row['Budget']) * 100 if row['Budget'] != 0 else 0,
+                    axis=1
+                )
+                
+                fig_variance_pct = px.bar(
+                    variance_data, x='Category', y='Variance %',
+                    title="Budget Variance % by Category",
+                    color='Variance %',
+                    color_continuous_scale='RdYlGn_r'
+                )
+                # Fix: Use update_layout instead of update_xaxis
+                fig_variance_pct.update_layout(xaxis={'tickangle': 45}, height=400)
+                st.plotly_chart(fig_variance_pct, use_container_width=True)
         else:
             st.info("Budget data not available for comparison.")
     
@@ -403,13 +427,16 @@ if df is not None:
             key_columns = ['Team Name', 'Category'] + week_cols
             if 'Budget' in filtered_df.columns:
                 key_columns.extend(['Budget', 'Total Forecast', 'Over/(Under)'])
-            display_df = filtered_df[key_columns]
+            display_df = filtered_df[[col for col in key_columns if col in filtered_df.columns]]
         
-        # Format numeric columns
-        numeric_columns = display_df.select_dtypes(include=[np.number]).columns
+        # Format numeric columns for display
         display_df_formatted = display_df.copy()
+        numeric_columns = display_df.select_dtypes(include=[np.number]).columns
+        
         for col in numeric_columns:
-            display_df_formatted[col] = display_df_formatted[col].apply(lambda x: f"${x:,.0f}")
+            display_df_formatted[col] = display_df_formatted[col].apply(
+                lambda x: f"${x:,.0f}" if pd.notnull(x) else ""
+            )
         
         st.dataframe(display_df_formatted, use_container_width=True)
         
