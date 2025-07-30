@@ -30,34 +30,6 @@ def generate_sample_csv():
     }
     return pd.DataFrame(sample_data)
 
-# Sidebar for file upload and filters
-with st.sidebar:
-    st.header("Data Upload")
-    
-    # Sample file download
-    st.subheader("📥 Download Sample Format")
-    sample_df = generate_sample_csv()
-    sample_csv = sample_df.to_csv(index=False)
-    
-    st.download_button(
-        label="📋 Download Sample CSV Format",
-        data=sample_csv,
-        file_name="sample_forecast_format.csv",
-        mime="text/csv",
-        help="Download a sample CSV file to see the expected format"
-    )
-    
-    st.markdown("---")
-    
-    uploaded_file = st.file_uploader(
-        "Upload your forecast data (CSV)",
-        type=['csv'],
-        help="Upload a CSV file with team forecast data"
-    )
-    
-    if uploaded_file is not None:
-        st.success("File uploaded successfully!")
-
 # Sample data generation function for demo purposes
 def generate_sample_data():
     """Generate sample data similar to the provided screenshot"""
@@ -84,10 +56,32 @@ def generate_sample_data():
     return pd.DataFrame(data)
 
 # Function to process uploaded data or use sample data
-def load_data():
+def load_data(uploaded_file):
+    """Load and process data from uploaded file or generate sample data"""
     if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file)
+            
+            # Convert numeric columns to proper data types
+            numeric_columns = []
+            
+            # Find week forecast columns
+            week_cols = [col for col in df.columns if 'Week' in col and 'Forecast' in col]
+            numeric_columns.extend(week_cols)
+            
+            # Add other numeric columns
+            if 'Budget' in df.columns:
+                numeric_columns.append('Budget')
+            
+            # Convert to numeric, handling any non-numeric values
+            for col in numeric_columns:
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('$', ''), errors='coerce')
+            
+            # Check for any conversion issues
+            if df[numeric_columns].isnull().any().any():
+                st.warning("Some numeric values couldn't be converted. Please check your data format.")
+                st.write("Columns with issues:", df[numeric_columns].columns[df[numeric_columns].isnull().any()].tolist())
+            
             return df
         except Exception as e:
             st.error(f"Error loading file: {e}")
@@ -96,8 +90,44 @@ def load_data():
         st.info("No file uploaded. Using sample data for demonstration.")
         return generate_sample_data()
 
+# Sidebar for file upload and filters
+with st.sidebar:
+    st.header("Data Upload")
+    
+    # Sample file download
+    st.subheader("📥 Download Sample Format")
+    sample_df = generate_sample_csv()
+    sample_csv = sample_df.to_csv(index=False)
+    
+    st.download_button(
+        label="📋 Download Sample CSV Format",
+        data=sample_csv,
+        file_name="sample_forecast_format.csv",
+        mime="text/csv",
+        help="Download a sample CSV file to see the expected format"
+    )
+    
+    st.markdown("---")
+    
+    uploaded_file = st.file_uploader(
+        "Upload your forecast data (CSV)",
+        type=['csv'],
+        help="Upload a CSV file with team forecast data"
+    )
+
 # Load data
-df = load_data()
+df = load_data(uploaded_file)
+
+# Show data preview if file is uploaded
+if uploaded_file is not None and df is not None:
+    with st.sidebar:
+        # Show data preview
+        with st.expander("📋 Data Preview"):
+            st.write("First 5 rows of your uploaded data:")
+            st.dataframe(df.head())
+            st.write(f"Shape: {df.shape[0]} rows, {df.shape[1]} columns")
+            st.write("Column types:")
+            st.write(df.dtypes)
 
 if df is not None:
     # Data preprocessing
@@ -139,32 +169,54 @@ if df is not None:
         st.stop()
     
     # Calculate total expenses and over/under budget
-    filtered_df['Total Forecast'] = filtered_df[week_cols].sum(axis=1)
-    if 'Budget' in filtered_df.columns:
-        filtered_df['Over/(Under)'] = filtered_df['Total Forecast'] - filtered_df['Budget']
-        filtered_df['Budget Variance %'] = (filtered_df['Over/(Under)'] / filtered_df['Budget']) * 100
+    try:
+        filtered_df['Total Forecast'] = filtered_df[week_cols].sum(axis=1)
+        if 'Budget' in filtered_df.columns:
+            filtered_df['Over/(Under)'] = filtered_df['Total Forecast'] - filtered_df['Budget']
+            # Handle division by zero
+            filtered_df['Budget Variance %'] = filtered_df.apply(
+                lambda row: (row['Over/(Under)'] / row['Budget'] * 100) if row['Budget'] != 0 else 0, 
+                axis=1
+            )
+    except Exception as e:
+        st.error(f"Error calculating totals: {e}")
+        st.write("Please ensure all forecast and budget columns contain numeric values.")
+        st.stop()
     
     # Main dashboard layout
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        total_forecast = filtered_df['Total Forecast'].sum()
-        st.metric("Total Forecast", f"${total_forecast:,.0f}")
+        try:
+            total_forecast = filtered_df['Total Forecast'].sum()
+            st.metric("Total Forecast", f"${total_forecast:,.0f}")
+        except Exception as e:
+            st.metric("Total Forecast", "Error in calculation")
     
     with col2:
         if 'Budget' in filtered_df.columns:
-            total_budget = filtered_df['Budget'].sum()
-            st.metric("Total Budget", f"${total_budget:,.0f}")
+            try:
+                total_budget = filtered_df['Budget'].sum()
+                st.metric("Total Budget", f"${total_budget:,.0f}")
+            except Exception as e:
+                st.metric("Total Budget", "Error in calculation")
     
     with col3:
         if 'Over/(Under)' in filtered_df.columns:
-            total_variance = filtered_df['Over/(Under)'].sum()
-            st.metric("Budget Variance", f"${total_variance:,.0f}")
+            try:
+                total_variance = filtered_df['Over/(Under)'].sum()
+                st.metric("Budget Variance", f"${total_variance:,.0f}")
+            except Exception as e:
+                st.metric("Budget Variance", "Error in calculation")
     
     with col4:
         if 'Budget Variance %' in filtered_df.columns:
-            avg_variance_pct = (total_variance / total_budget * 100) if total_budget != 0 else 0
-            st.metric("Variance %", f"{avg_variance_pct:.1f}%")
+            try:
+                total_budget = filtered_df['Budget'].sum()
+                avg_variance_pct = (total_variance / total_budget * 100) if total_budget != 0 else 0
+                st.metric("Variance %", f"{avg_variance_pct:.1f}%")
+            except Exception as e:
+                st.metric("Variance %", "Error in calculation")
     
     # Tabs for different visualizations
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -317,7 +369,10 @@ if df is not None:
                 'Over/(Under)': 'sum',
                 'Budget': 'sum'
             }).reset_index()
-            variance_data['Variance %'] = (variance_data['Over/(Under)'] / variance_data['Budget']) * 100
+            variance_data['Variance %'] = variance_data.apply(
+                lambda row: (row['Over/(Under)'] / row['Budget'] * 100) if row['Budget'] != 0 else 0, 
+                axis=1
+            )
             
             fig_variance_pct = px.bar(
                 variance_data, x='Category', y='Variance %',
