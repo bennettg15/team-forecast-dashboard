@@ -4,7 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
-from datetime import datetime, timedelta
 
 # Page configuration
 st.set_page_config(
@@ -14,239 +13,345 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Title and description
-st.title("📊 Team Forecast Data Visualization Dashboard")
-st.markdown("Upload your team forecast data and create interactive visualizations")
+st.title("📊 Team Forecast Analysis Dashboard")
+st.markdown("Upload your team forecast data to visualize performance across weeks, teams, and cost categories.")
 
-# Sidebar for controls
-st.sidebar.header("📁 Data Upload & Controls")
+# Sidebar for file upload and filters
+with st.sidebar:
+    st.header("Data Upload")
+    uploaded_file = st.file_uploader(
+        "Upload your forecast data (CSV)",
+        type=['csv'],
+        help="Upload a CSV file with team forecast data"
+    )
+    
+    if uploaded_file is not None:
+        st.success("File uploaded successfully!")
 
-# File upload
-uploaded_file = st.sidebar.file_uploader(
-    "Choose a CSV file",
-    type=['csv'],
-    help="Upload your team forecast data in CSV format"
-)
+# Sample data generation function for demo purposes
+def generate_sample_data():
+    """Generate sample data similar to the provided screenshot"""
+    teams = ["Team A", "Team B", "Team C", "Team D"]
+    categories = ["HC Related", "Contracted Srvcs", "Software Spend", 
+                 "Discretionary", "Depr. & Other", "Centralized Allocations"]
+    weeks = ["Week 1", "Week 2", "Week 3", "Week 4"]
+    
+    data = []
+    for team in teams:
+        for category in categories:
+            base_amount = np.random.randint(100000, 25000000)
+            budget = base_amount * np.random.uniform(0.95, 1.1)
+            
+            row = {"Team Name": team, "Category": category, "Budget": budget}
+            
+            # Generate weekly forecasts with some variation
+            for i, week in enumerate(weeks):
+                weekly_amount = base_amount * np.random.uniform(0.85, 1.15)
+                row[f"{week} Q4 Forecast"] = weekly_amount
+            
+            data.append(row)
+    
+    return pd.DataFrame(data)
 
-# Main content area
-if uploaded_file is not None:
-    try:
-        # Read the uploaded file
-        df = pd.read_csv(uploaded_file)
+# Function to process uploaded data or use sample data
+def load_data():
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            return df
+        except Exception as e:
+            st.error(f"Error loading file: {e}")
+            return None
+    else:
+        st.info("No file uploaded. Using sample data for demonstration.")
+        return generate_sample_data()
+
+# Load data
+df = load_data()
+
+if df is not None:
+    # Data preprocessing
+    # Identify week columns (columns containing 'Week' and 'Forecast')
+    week_cols = [col for col in df.columns if 'Week' in col and 'Forecast' in col]
+    
+    if not week_cols:
+        st.error("No week forecast columns found. Please ensure your data has columns like 'Week 1 Q4 Forecast'")
+        st.stop()
+    
+    # Add filters in sidebar
+    with st.sidebar:
+        st.header("Filters")
         
-        # Display basic info about the dataset
-        st.success(f"✅ File uploaded successfully! Dataset contains {len(df)} rows and {len(df.columns)} columns.")
+        # Team filter
+        available_teams = df['Team Name'].unique() if 'Team Name' in df.columns else []
+        selected_teams = st.multiselect(
+            "Select Teams",
+            available_teams,
+            default=available_teams[:3] if len(available_teams) > 3 else available_teams
+        )
         
-        # Data preview section
-        st.header("🔍 Data Preview")
+        # Category filter
+        available_categories = df['Category'].unique() if 'Category' in df.columns else []
+        selected_categories = st.multiselect(
+            "Select Cost Categories",
+            available_categories,
+            default=available_categories
+        )
+    
+    # Filter data based on selections
+    filtered_df = df[
+        (df['Team Name'].isin(selected_teams)) & 
+        (df['Category'].isin(selected_categories))
+    ]
+    
+    if filtered_df.empty:
+        st.warning("No data matches the selected filters. Please adjust your selection.")
+        st.stop()
+    
+    # Calculate total expenses and over/under budget
+    filtered_df['Total Forecast'] = filtered_df[week_cols].sum(axis=1)
+    if 'Budget' in filtered_df.columns:
+        filtered_df['Over/(Under)'] = filtered_df['Total Forecast'] - filtered_df['Budget']
+        filtered_df['Budget Variance %'] = (filtered_df['Over/(Under)'] / filtered_df['Budget']) * 100
+    
+    # Main dashboard layout
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_forecast = filtered_df['Total Forecast'].sum()
+        st.metric("Total Forecast", f"${total_forecast:,.0f}")
+    
+    with col2:
+        if 'Budget' in filtered_df.columns:
+            total_budget = filtered_df['Budget'].sum()
+            st.metric("Total Budget", f"${total_budget:,.0f}")
+    
+    with col3:
+        if 'Over/(Under)' in filtered_df.columns:
+            total_variance = filtered_df['Over/(Under)'].sum()
+            st.metric("Budget Variance", f"${total_variance:,.0f}")
+    
+    with col4:
+        if 'Budget Variance %' in filtered_df.columns:
+            avg_variance_pct = (total_variance / total_budget * 100) if total_budget != 0 else 0
+            st.metric("Variance %", f"{avg_variance_pct:.1f}%")
+    
+    # Tabs for different visualizations
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📈 Weekly Trends", 
+        "👥 Team Comparison", 
+        "📊 Category Analysis", 
+        "💰 Budget vs Forecast", 
+        "📋 Data Table"
+    ])
+    
+    with tab1:
+        st.subheader("Weekly Forecast Trends")
         
-        # Show basic statistics
-        col1, col2, col3, col4 = st.columns(4)
+        # Prepare data for weekly trends
+        weekly_data = []
+        for _, row in filtered_df.iterrows():
+            for week_col in week_cols:
+                week_num = week_col.split()[1]  # Extract week number
+                weekly_data.append({
+                    'Team': row['Team Name'],
+                    'Category': row['Category'],
+                    'Week': f"Week {week_num}",
+                    'Forecast': row[week_col]
+                })
+        
+        weekly_df = pd.DataFrame(weekly_data)
+        
+        # Weekly trends by team
+        fig_weekly_team = px.line(
+            weekly_df.groupby(['Team', 'Week'])['Forecast'].sum().reset_index(),
+            x='Week', y='Forecast', color='Team',
+            title="Weekly Forecast by Team",
+            markers=True
+        )
+        fig_weekly_team.update_layout(height=400)
+        st.plotly_chart(fig_weekly_team, use_container_width=True)
+        
+        # Weekly trends by category
+        fig_weekly_cat = px.line(
+            weekly_df.groupby(['Category', 'Week'])['Forecast'].sum().reset_index(),
+            x='Week', y='Forecast', color='Category',
+            title="Weekly Forecast by Category",
+            markers=True
+        )
+        fig_weekly_cat.update_layout(height=400)
+        st.plotly_chart(fig_weekly_cat, use_container_width=True)
+    
+    with tab2:
+        st.subheader("Team Performance Comparison")
+        
+        # Team total forecast comparison
+        team_totals = filtered_df.groupby('Team Name')['Total Forecast'].sum().reset_index()
+        fig_team_bar = px.bar(
+            team_totals, x='Team Name', y='Total Forecast',
+            title="Total Forecast by Team",
+            color='Total Forecast',
+            color_continuous_scale='viridis'
+        )
+        fig_team_bar.update_layout(height=400)
+        st.plotly_chart(fig_team_bar, use_container_width=True)
+        
+        # Team budget variance
+        if 'Over/(Under)' in filtered_df.columns:
+            team_variance = filtered_df.groupby('Team Name')['Over/(Under)'].sum().reset_index()
+            fig_variance = px.bar(
+                team_variance, x='Team Name', y='Over/(Under)',
+                title="Budget Variance by Team",
+                color='Over/(Under)',
+                color_continuous_scale='RdYlGn_r'
+            )
+            fig_variance.update_layout(height=400)
+            st.plotly_chart(fig_variance, use_container_width=True)
+    
+    with tab3:
+        st.subheader("Cost Category Analysis")
+        
+        # Category breakdown
+        category_totals = filtered_df.groupby('Category')['Total Forecast'].sum().reset_index()
+        
+        col1, col2 = st.columns(2)
+        
         with col1:
-            st.metric("Total Rows", len(df))
+            fig_pie = px.pie(
+                category_totals, values='Total Forecast', names='Category',
+                title="Forecast Distribution by Category"
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        
         with col2:
-            st.metric("Total Columns", len(df.columns))
-        with col3:
-            st.metric("Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024:.1f} KB")
-        with col4:
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            st.metric("Numeric Columns", len(numeric_cols))
+            fig_cat_bar = px.bar(
+                category_totals, x='Category', y='Total Forecast',
+                title="Total Forecast by Category",
+                color='Total Forecast',
+                color_continuous_scale='plasma'
+            )
+            fig_cat_bar.update_xaxis(tickangle=45)
+            st.plotly_chart(fig_cat_bar, use_container_width=True)
         
-        # Display the dataframe
-        st.subheader("📋 Raw Data")
+        # Heatmap of team vs category
+        pivot_data = filtered_df.pivot_table(
+            values='Total Forecast', 
+            index='Team Name', 
+            columns='Category', 
+            aggfunc='sum'
+        ).fillna(0)
         
-        # Add option to filter/search the dataframe
-        search_term = st.text_input("🔍 Search in data (optional)")
-        if search_term:
-            mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False, na=False)).any(axis=1)
-            filtered_df = df[mask]
-            st.write(f"Showing {len(filtered_df)} rows matching '{search_term}'")
-            st.dataframe(filtered_df, use_container_width=True)
+        fig_heatmap = px.imshow(
+            pivot_data.values,
+            x=pivot_data.columns,
+            y=pivot_data.index,
+            aspect="auto",
+            title="Team vs Category Heatmap",
+            color_continuous_scale='viridis'
+        )
+        fig_heatmap.update_layout(height=400)
+        st.plotly_chart(fig_heatmap, use_container_width=True)
+    
+    with tab4:
+        st.subheader("Budget vs Forecast Analysis")
+        
+        if 'Budget' in filtered_df.columns:
+            # Budget vs Forecast comparison
+            budget_comparison = filtered_df.groupby('Team Name').agg({
+                'Budget': 'sum',
+                'Total Forecast': 'sum'
+            }).reset_index()
+            
+            fig_budget = go.Figure()
+            fig_budget.add_trace(go.Bar(
+                name='Budget',
+                x=budget_comparison['Team Name'],
+                y=budget_comparison['Budget'],
+                marker_color='lightblue'
+            ))
+            fig_budget.add_trace(go.Bar(
+                name='Forecast',
+                x=budget_comparison['Team Name'],
+                y=budget_comparison['Total Forecast'],
+                marker_color='darkblue'
+            ))
+            fig_budget.update_layout(
+                title='Budget vs Forecast by Team',
+                barmode='group',
+                height=400
+            )
+            st.plotly_chart(fig_budget, use_container_width=True)
+            
+            # Variance analysis
+            variance_data = filtered_df.groupby('Category').agg({
+                'Over/(Under)': 'sum',
+                'Budget': 'sum'
+            }).reset_index()
+            variance_data['Variance %'] = (variance_data['Over/(Under)'] / variance_data['Budget']) * 100
+            
+            fig_variance_pct = px.bar(
+                variance_data, x='Category', y='Variance %',
+                title="Budget Variance % by Category",
+                color='Variance %',
+                color_continuous_scale='RdYlGn_r'
+            )
+            fig_variance_pct.update_xaxis(tickangle=45)
+            fig_variance_pct.update_layout(height=400)
+            st.plotly_chart(fig_variance_pct, use_container_width=True)
         else:
-            st.dataframe(df, use_container_width=True)
+            st.info("Budget data not available for comparison.")
+    
+    with tab5:
+        st.subheader("Detailed Data Table")
         
-        # Data types and info
-        with st.expander("📊 Data Types & Info"):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**Column Data Types:**")
-                st.dataframe(df.dtypes.to_frame('Data Type'))
-            with col2:
-                st.write("**Missing Values:**")
-                missing_data = df.isnull().sum().to_frame('Missing Count')
-                missing_data['Missing %'] = (missing_data['Missing Count'] / len(df) * 100).round(2)
-                st.dataframe(missing_data)
+        # Display options
+        col1, col2 = st.columns(2)
+        with col1:
+            show_all_columns = st.checkbox("Show all columns", value=False)
+        with col2:
+            download_data = st.button("Download Filtered Data")
         
-        # Visualization section
-        st.header("📈 Visualizations")
+        if show_all_columns:
+            display_df = filtered_df
+        else:
+            # Show key columns
+            key_columns = ['Team Name', 'Category'] + week_cols
+            if 'Budget' in filtered_df.columns:
+                key_columns.extend(['Budget', 'Total Forecast', 'Over/(Under)'])
+            display_df = filtered_df[key_columns]
         
-        # Get numeric and categorical columns
-        numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
-        categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
-        date_columns = df.select_dtypes(include=['datetime64']).columns.tolist()
+        # Format numeric columns
+        numeric_columns = display_df.select_dtypes(include=[np.number]).columns
+        display_df_formatted = display_df.copy()
+        for col in numeric_columns:
+            display_df_formatted[col] = display_df_formatted[col].apply(lambda x: f"${x:,.0f}")
         
-        # Try to identify potential date columns in object type
-        potential_date_cols = []
-        for col in categorical_columns:
-            if df[col].dtype == 'object':
-                try:
-                    pd.to_datetime(df[col].head(), errors='raise')
-                    potential_date_cols.append(col)
-                except:
-                    pass
+        st.dataframe(display_df_formatted, use_container_width=True)
         
-        if potential_date_cols:
-            date_columns.extend(potential_date_cols)
-            for col in potential_date_cols:
-                categorical_columns.remove(col)
-        
-        # Sidebar controls for visualizations
-        st.sidebar.subheader("🎨 Visualization Controls")
-        
-        if numeric_columns:
-            # Chart type selection
-            chart_types = ["Line Chart", "Bar Chart", "Scatter Plot", "Box Plot", "Histogram", "Heatmap"]
-            selected_chart = st.sidebar.selectbox("Select Chart Type", chart_types)
-            
-            # Create visualizations based on selection
-            if selected_chart == "Line Chart" and date_columns:
-                st.subheader("📈 Line Chart")
-                x_col = st.selectbox("Select X-axis (Date/Time)", date_columns)
-                y_cols = st.multiselect("Select Y-axis (Numeric)", numeric_columns, default=numeric_columns[:3])
-                
-                if x_col and y_cols:
-                    # Convert to datetime if needed
-                    df_plot = df.copy()
-                    if x_col in potential_date_cols:
-                        df_plot[x_col] = pd.to_datetime(df_plot[x_col])
-                    
-                    fig = go.Figure()
-                    for col in y_cols:
-                        fig.add_trace(go.Scatter(
-                            x=df_plot[x_col], 
-                            y=df_plot[col], 
-                            mode='lines+markers',
-                            name=col
-                        ))
-                    fig.update_layout(
-                        title=f"Forecast Trends Over Time",
-                        xaxis_title=x_col,
-                        yaxis_title="Values",
-                        hovermode='x unified'
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-            
-            elif selected_chart == "Bar Chart":
-                st.subheader("📊 Bar Chart")
-                if categorical_columns and numeric_columns:
-                    x_col = st.selectbox("Select Category Column", categorical_columns)
-                    y_col = st.selectbox("Select Numeric Column", numeric_columns)
-                    
-                    if x_col and y_col:
-                        fig = px.bar(df, x=x_col, y=y_col, title=f"{y_col} by {x_col}")
-                        st.plotly_chart(fig, use_container_width=True)
-            
-            elif selected_chart == "Scatter Plot":
-                st.subheader("🎯 Scatter Plot")
-                if len(numeric_columns) >= 2:
-                    x_col = st.selectbox("Select X-axis", numeric_columns)
-                    y_col = st.selectbox("Select Y-axis", [col for col in numeric_columns if col != x_col])
-                    color_col = st.selectbox("Color by (optional)", [None] + categorical_columns)
-                    
-                    if x_col and y_col:
-                        fig = px.scatter(df, x=x_col, y=y_col, color=color_col, 
-                                       title=f"{y_col} vs {x_col}")
-                        st.plotly_chart(fig, use_container_width=True)
-            
-            elif selected_chart == "Box Plot":
-                st.subheader("📦 Box Plot")
-                if categorical_columns and numeric_columns:
-                    cat_col = st.selectbox("Select Category Column", categorical_columns)
-                    num_col = st.selectbox("Select Numeric Column", numeric_columns)
-                    
-                    if cat_col and num_col:
-                        fig = px.box(df, x=cat_col, y=num_col, title=f"{num_col} Distribution by {cat_col}")
-                        st.plotly_chart(fig, use_container_width=True)
-            
-            elif selected_chart == "Histogram":
-                st.subheader("📊 Histogram")
-                num_col = st.selectbox("Select Numeric Column", numeric_columns)
-                bins = st.slider("Number of Bins", 10, 100, 30)
-                
-                if num_col:
-                    fig = px.histogram(df, x=num_col, nbins=bins, title=f"Distribution of {num_col}")
-                    st.plotly_chart(fig, use_container_width=True)
-            
-            elif selected_chart == "Heatmap":
-                st.subheader("🔥 Correlation Heatmap")
-                if len(numeric_columns) >= 2:
-                    corr_matrix = df[numeric_columns].corr()
-                    fig = px.imshow(corr_matrix, 
-                                  title="Correlation Matrix",
-                                  color_continuous_scale='RdBu_r',
-                                  aspect="auto")
-                    st.plotly_chart(fig, use_container_width=True)
-        
-        # Summary statistics
-        if numeric_columns:
-            st.subheader("📊 Summary Statistics")
-            st.dataframe(df[numeric_columns].describe(), use_container_width=True)
-        
-        # Download processed data
-        st.subheader("💾 Download Data")
-        
-        # Option to download filtered data
-        if search_term and 'filtered_df' in locals():
+        if download_data:
             csv = filtered_df.to_csv(index=False)
             st.download_button(
-                label="Download Filtered Data as CSV",
+                label="Download CSV",
                 data=csv,
-                file_name=f"filtered_forecast_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-        else:
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="Download Full Data as CSV",
-                data=csv,
-                file_name=f"forecast_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name="filtered_forecast_data.csv",
                 mime="text/csv"
             )
     
-    except Exception as e:
-        st.error(f"❌ Error reading file: {str(e)}")
-        st.info("Please make sure your file is a valid CSV format.")
-
-else:
-    # Instructions when no file is uploaded
-    st.info("👆 Please upload a CSV file to get started")
-    
-    # Show example of expected data format
-    st.subheader("📋 Expected Data Format")
-    st.write("Your CSV file should contain team forecast data. Here's an example structure:")
-    
-    # Create example dataframe
-    example_data = {
-        'Date': pd.date_range('2024-01-01', periods=10, freq='M'),
-        'Team': ['Sales', 'Marketing', 'Engineering', 'Sales', 'Marketing', 'Engineering', 'Sales', 'Marketing', 'Engineering', 'Sales'],
-        'Forecast_Revenue': np.random.randint(50000, 200000, 10),
-        'Actual_Revenue': np.random.randint(45000, 190000, 10),
-        'Target_Revenue': np.random.randint(60000, 210000, 10),
-        'Confidence_Level': np.random.uniform(0.7, 0.95, 10).round(2)
-    }
-    example_df = pd.DataFrame(example_data)
-    st.dataframe(example_df, use_container_width=True)
-    
-    # Tips for data preparation
-    st.subheader("💡 Data Preparation Tips")
+    # Footer with instructions
+    st.markdown("---")
     st.markdown("""
-    - Ensure your CSV has column headers in the first row
-    - Date columns should be in a standard format (YYYY-MM-DD, MM/DD/YYYY, etc.)
-    - Numeric data should not contain special characters (except decimal points)
-    - Missing values are okay - they'll be identified in the analysis
-    - Include team names, forecast values, actual values, and dates for best results
+    ### How to use this dashboard:
+    1. **Upload Data**: Use the sidebar to upload your CSV file with forecast data
+    2. **Filter**: Select specific teams and categories to focus your analysis
+    3. **Explore Tabs**: 
+       - **Weekly Trends**: See how forecasts change over time
+       - **Team Comparison**: Compare performance across teams
+       - **Category Analysis**: Understand spending by category
+       - **Budget vs Forecast**: Analyze variance from budget
+       - **Data Table**: View and download the raw data
+    
+    **Expected CSV Format**: Include columns for 'Team Name', 'Category', 'Budget', and weekly forecast columns like 'Week 1 Q4 Forecast', 'Week 2 Q4 Forecast', etc.
     """)
 
-# Footer
-st.markdown("---")
-st.markdown("Built with ❤️ using Streamlit and Plotly")
+else:
+    st.error("Unable to load data. Please check your file format.")
